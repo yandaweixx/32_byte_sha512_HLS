@@ -1,4 +1,4 @@
-#include "hashcat_512.h"
+#include "top_unix512.hpp"
 
 
 int compare_digest_sha512 (const void *p1, const void *p2)
@@ -59,6 +59,82 @@ void sha512_init(hc_sha512_ctx *ctx) {
 	ctx->len = 0;
 }
 
+void david_hash( uint64_t wordblock[16], uint8_t* output) {
+#pragma HLS PIPELINE II=1
+#pragma HLS inline region off
+
+	uint64_t digest[8];
+#pragma HLS ARRAY_PARTITION variable=digest complete dim=1
+
+		uint64_t S[8];
+#pragma HLS ARRAY_PARTITION variable=S complete dim=1
+		uint64_t W[80];
+#ifndef ROUND_FUN
+		uint64_t t0;
+		uint64_t t1;
+#else
+		uint64_t t[2];
+#endif
+
+#pragma HLS ARRAY_RESHAPE variable=W complete dim=1
+
+		int i = 0;
+		int j = 0;
+		S[0] = SHA512M_A;
+		S[1] = SHA512M_B;
+		S[2] = SHA512M_C;
+		S[3] = SHA512M_D;
+		S[4] = SHA512M_E;
+		S[5] = SHA512M_F;
+		S[6] = SHA512M_G;
+		S[7] = SHA512M_H;
+
+		/*S[0] = digest[0];
+		S[1] = digest[1];
+		S[2] = digest[2];
+		S[3] = digest[3];
+		S[4] = digest[4];
+		S[5] = digest[5];
+		S[6] = digest[6];
+		S[7] = digest[7];*/
+
+		// SHA512Decode(W, block, 128);
+		/*for (i = 0; i < 16; i++)
+		 LOAD64H(W[i], block + (8 * i));*/
+
+		for (i = 0; i < 16; i++)
+			W[i] = wordblock[i];
+
+		for (i = 16; i < 80; i++) {
+			//W[i] = Gamma1(W[i - 2]) + W[i - 7] + Gamma0(W[i - 15]) + W[i - 16];
+			W[i] = addv(Gamma1(W[i - 2]) , W[i - 7]) + addv(Gamma0(W[i - 15]) , W[i - 16]);
+		}
+		for (i = 0; i < 80; i += 8) {
+
+			Sha512Round(S[0], S[1], S[2], S[3], S[4], S[5], S[6], S[7], i + 0);
+			Sha512Round(S[7], S[0], S[1], S[2], S[3], S[4], S[5], S[6], i + 1);
+			Sha512Round(S[6], S[7], S[0], S[1], S[2], S[3], S[4], S[5], i + 2);
+			Sha512Round(S[5], S[6], S[7], S[0], S[1], S[2], S[3], S[4], i + 3);
+			Sha512Round(S[4], S[5], S[6], S[7], S[0], S[1], S[2], S[3], i + 4);
+			Sha512Round(S[3], S[4], S[5], S[6], S[7], S[0], S[1], S[2], i + 5);
+			Sha512Round(S[2], S[3], S[4], S[5], S[6], S[7], S[0], S[1], i + 6);
+			Sha512Round(S[1], S[2], S[3], S[4], S[5], S[6], S[7], S[0], i + 7);
+
+		}
+
+		for (i = 0; i < 8; i++) {
+			digest[i] = S[i] + INIT_STATE[i] ;
+		}
+
+		for (j = 0; j < 8; j++) {
+		 BYTESWAP64(digest[j]);
+				}
+		transmit(digest, output);
+
+
+}
+
+
 void hashcat_sha512(uint64_t digest[8], uint64_t wordblock[16]) {
 #pragma HLS PIPELINE II=1
 #pragma HLS inline region off
@@ -110,6 +186,7 @@ void hashcat_sha512(uint64_t digest[8], uint64_t wordblock[16]) {
 		}
 
 }
+
 
 void no_hashcat_sha512(uint64_t digest[8], uint64_t wordblock[16]) {
 //#pragma HLS inline region off
@@ -208,7 +285,7 @@ void no_hashcat_sha512(uint64_t digest[8], uint64_t wordblock[16]) {
 }
 
 
-void sha512_update(hc_sha512_ctx *ctx, const char *buf, int len) {
+void sha512_update(hc_sha512_ctx *ctx, unsigned char *buf, int len) {
 //#pragma HLS inline region off
 
 //#pragma HLS allocation instances=hashcat_sha512 limit=1 function
@@ -219,12 +296,14 @@ void sha512_update(hc_sha512_ctx *ctx, const char *buf, int len) {
 
 	if (left + len < 128) {
 		 for(i = 0; i < len; i++){
+#pragma HLS LOOP_TRIPCOUNT min=6 max=64
 			 ctx->buf[left + i] = buf[i];
 		 }
 
 		return;
 	}
 	 for(i = 0; i < 128-left ; i++){
+#pragma HLS LOOP_TRIPCOUNT min=6 max=64
 		 ctx->buf[left + i] = buf[i];
 	 }
 
@@ -251,6 +330,8 @@ void sha512_update(hc_sha512_ctx *ctx, const char *buf, int len) {
 
 	//for (j=0; j < MAX_UPDATE;j++) {//while (len > 128)
 	while(len > 128){
+#pragma HLS LOOP_TRIPCOUNT min=1 max=9
+
 		//if(len > 128){
 		 for(i = 0; i < 128; i++)
 			 	 ctx->buf[i] = buf[i];
@@ -280,6 +361,8 @@ void sha512_update(hc_sha512_ctx *ctx, const char *buf, int len) {
 		//}
 	}
 	 for(i = 0; i < len; i++){// i < len
+#pragma HLS LOOP_TRIPCOUNT min=6 max=64
+
 		// if(i < len)
 		 ctx->buf[i] = buf[i];
 	 }
@@ -416,23 +499,21 @@ void sha512_final(hc_sha512_ctx *ctx) {
 	BYTESWAP64(ctx->state[6]);
 	BYTESWAP64(ctx->state[7]);
 }
-
-
-void loop_sha512_final(hc_sha512_ctx *ctx) {
+void loop_sha512_final_2(hc_sha512_ctx *ctx) {
 #pragma HLS inline region off
 #pragma HLS PIPELINE II=1
 //#pragma HLS allocation instances=hashcat_sha512 limit=1 function
-	int left = ctx->len & 0x7f;
+/*	int left = ctx->len & 0x7f;
 	int i;
-	/* for( i = 0; i < 128 -left; i++){//i < 128 -left
+	 for( i = 0; i < 128 -left; i++){//i < 128 -left
 		// if(i < 128 -left)
 		 ctx->buf[left + i] = 0;
-	 }*/
+	 }
 		 //memset(ctx->buf + left, 0, 128 - left);
 
-	//ctx->buf[left] = 0x80;
+	ctx->buf[left] = 0x80;
 
-	/*BYTESWAP64(ctx->w[0]);
+	BYTESWAP64(ctx->w[0]);
 	BYTESWAP64(ctx->w[1]);
 	BYTESWAP64(ctx->w[2]);
 	BYTESWAP64(ctx->w[3]);
@@ -445,42 +526,65 @@ void loop_sha512_final(hc_sha512_ctx *ctx) {
 	BYTESWAP64(ctx->w[10]);
 	BYTESWAP64(ctx->w[11]);
 	BYTESWAP64(ctx->w[12]);
-	BYTESWAP64(ctx->w[13]);*/
+	BYTESWAP64(ctx->w[13]);
 
-	/*if (left >= 112) {
-		BYTESWAP64(ctx->w[14]);
-		BYTESWAP64(ctx->w[15]);
-
-		hashcat_sha512(ctx->state, ctx->w);
-
-		ctx->w[0] = 0;
-		ctx->w[1] = 0;
-		ctx->w[2] = 0;
-		ctx->w[3] = 0;
-		ctx->w[4] = 0;
-		ctx->w[5] = 0;
-		ctx->w[6] = 0;
-		ctx->w[7] = 0;
-		ctx->w[8] = 0;
-		ctx->w[9] = 0;
-		ctx->w[10] = 0;
-		ctx->w[11] = 0;
-		ctx->w[12] = 0;
-		ctx->w[13] = 0;
-	}*/
-
-//	ctx->w[14] = 0;
-//	ctx->w[15] = ctx->len * 8;
-		//ctx->w[15] = left * 8;
+	ctx->w[14] = 0;
+	ctx->w[15] = ctx->len * 8;
+		//ctx->w[15] = left * 8;*/
 
 	hashcat_sha512(ctx->state, ctx->w);
 
-	BYTESWAP64(ctx->state[0]);
+	/*BYTESWAP64(ctx->state[0]);
 	BYTESWAP64(ctx->state[1]);
 	BYTESWAP64(ctx->state[2]);
 	BYTESWAP64(ctx->state[3]);
 	BYTESWAP64(ctx->state[4]);
 	BYTESWAP64(ctx->state[5]);
 	BYTESWAP64(ctx->state[6]);
-	BYTESWAP64(ctx->state[7]);
+	BYTESWAP64(ctx->state[7]);*/
+}
+
+void loop_sha512_final(uint64_t *state, uint64_t *words) {
+#pragma HLS inline region off
+#pragma HLS PIPELINE II=1
+//#pragma HLS allocation instances=hashcat_sha512 limit=1 function
+/*	int left = ctx->len & 0x7f;
+	int i;
+	 for( i = 0; i < 128 -left; i++){//i < 128 -left
+		// if(i < 128 -left)
+		 ctx->buf[left + i] = 0;
+	 }
+		 //memset(ctx->buf + left, 0, 128 - left);
+
+	ctx->buf[left] = 0x80;
+
+	BYTESWAP64(ctx->w[0]);
+	BYTESWAP64(ctx->w[1]);
+	BYTESWAP64(ctx->w[2]);
+	BYTESWAP64(ctx->w[3]);
+	BYTESWAP64(ctx->w[4]);
+	BYTESWAP64(ctx->w[5]);
+	BYTESWAP64(ctx->w[6]);
+	BYTESWAP64(ctx->w[7]);
+	BYTESWAP64(ctx->w[8]);
+	BYTESWAP64(ctx->w[9]);
+	BYTESWAP64(ctx->w[10]);
+	BYTESWAP64(ctx->w[11]);
+	BYTESWAP64(ctx->w[12]);
+	BYTESWAP64(ctx->w[13]);
+
+	ctx->w[14] = 0;
+	ctx->w[15] = ctx->len * 8;
+		//ctx->w[15] = left * 8;*/
+
+	hashcat_sha512(state, words);
+
+	BYTESWAP64(state[0]);
+	BYTESWAP64(state[1]);
+	BYTESWAP64(state[2]);
+	BYTESWAP64(state[3]);
+	BYTESWAP64(state[4]);
+	BYTESWAP64(state[5]);
+	BYTESWAP64(state[6]);
+	BYTESWAP64(state[7]);
 }

@@ -1,6 +1,6 @@
 #include<stdio.h>
 #include <string.h>
-#include "hashcat_512.h"
+#include "top_unix512.hpp"
 #define HASH_SIZE_SHA512UNIX      86
 #define DIGEST_SIZE_SHA512         8 * 8
 const char BASE64B_TAB[64] =
@@ -14,7 +14,8 @@ const char BASE64B_TAB[64] =
 };
 
 extern void sha512unix_decode ( char digest[DIGEST_SIZE_SHA512],  char buf[HASH_SIZE_SHA512UNIX]);
-extern void hashing_01800(char *password0_buf,int password0_len, int salt_len, char *salt_buf , digest_t *digest) ;
+extern void hashing_01800(hls::stream<pwd_t> &pwd,hls::stream<int> &password0_len, hls::stream<int > &salt_len,hls::stream<salt_t> &salt, hls::stream<digest_t> &digest);
+
 extern int compare_digest_sha512 (const void *p1, const void *p2);
 
 int base64b_char2int (char c)
@@ -229,16 +230,41 @@ void sha512unix_decode ( char digest[DIGEST_SIZE_SHA512],  char buf[HASH_SIZE_SH
 
 /*$6$loBVOjNs$GK/LLDNzB0n84yaBAwa8kVk/atvmNviidaJcM.UfgQUV.RXYt/oG0543UJIeLbIQnEAuJ38BgJw3Zys1aoNTf0*/
 int main(int argc, char **argv){
+	int i,j;
 	int match = 0;
 	 char * codes ="GK/LLDNzB0n84yaBAwa8kVk/atvmNviidaJcM.UfgQUV.RXYt/oG0543UJIeLbIQnEAuJ38BgJw3Zys1aoNTf0" ;
 	digest_t digest_target;
 
 	sha512unix_decode ((char *)digest_target.buf64, codes);
 	//plain_t *in;
-	digest_t digest;
+	hls::stream<digest_t> digest;
+	hls::stream<pwd_t> passwd;
+	hls::stream<salt_t> salt;
+	hls::stream<int> pw_len;
+	hls::stream<int> salt_len;
+
+
+	pwd_t tmp_passwd;
+	salt_t tmp_salt;
+
+	for(i = 0; i < GROUP_LENGTH; i++){
+		memcpy(tmp_passwd.passwd , "123456", 6);
+		passwd.write(tmp_passwd);
+	//	passwd[i] = "123456";
+		memcpy(tmp_salt.salt ,"loBVOjNs" ,8);
+		salt.write(tmp_salt);
+		//salt[i] = "loBVOjNs";
+		pw_len.write(strlen("123456"));
+		salt_len.write(strlen("loBVOjNs"));
+
+	}
+
 	//&in->buf8 = "123456";
 	//in->len = strlen("123456");
-	hashing_01800("123456",strlen("123456"), strlen("loBVOjNs"), "loBVOjNs" , &digest);
-	match = compare_digest_sha512(&digest,&digest_target);
+	hashing_01800(passwd,pw_len, salt_len, salt , digest);
+
+	for(i = 0; i < GROUP_LENGTH; i++){
+		match += compare_digest_sha512(digest.read().buf64,&digest_target);
+	}
 	return match;
 }
