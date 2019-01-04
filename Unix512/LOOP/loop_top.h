@@ -1,16 +1,35 @@
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
 
-
+//#include "hls_stream.h"
 #define MAX_UPDATE 256
-#define MAX_PASSW 32
+#define MAX_PASSW 16
 #define MAX_SALT 16
+#define GROUP_LENGTH 256
+#define lp 6
+#define ls 8
+//ab7d8f6c34c4d7a96179920718a1ee66076f862b9392260fc555e849601440408600a9babe702a6f8dfd159da517a1337145c24b372cae59d9cb080c3630d75c
+//#define FIXED_SIX
 //#define NO_FUNC_COPY
 //#define OP_WPC
-#define HASHCAT
-#define WPC_OP
+//#define HASHCAT
+
+
+int compare_digest_sha512 (const void *p1, const void *p2);
+uint64_t ROTR( int n, uint64_t x) ;
+uint64_t SHR( int n, uint64_t x) ;
+uint64_t choose (uint64_t x, uint64_t y, uint64_t z) ;
+uint64_t majority (uint64_t x, uint64_t y, uint64_t z) ;
+uint64_t SIGMA0(uint64_t x) ;
+uint64_t SIGMA1(uint64_t x) ;
+uint64_t sig0(uint64_t x);
+uint64_t sig1(uint64_t x);
+uint64_t addv(uint64_t x, uint64_t y);
+void david_hash(uint64_t wordblock[16],uint8_t digest[64]);
+void transmit(uint64_t *input, unsigned char *output);
 #define BYTESWAP64(x) x = \
    ((((x) & 0xff00000000000000ull) >> 56)   \
   | (((x) & 0x00ff000000000000ull) >> 40)   \
@@ -25,6 +44,39 @@
 #define PUTCHAR64_BE(a,p,c) ((uint8_t *)(a))[(p) ^ 7] = (uint8_t) (c)
 #define GETCHAR64_BE(a,p) ((uint8_t *)(a))[(p) ^ 7]
 
+#define LOAD64H( x, y )                                                      \
+   { x = (((uint64_t)((y)[0] & 255))<<56)|(((uint64_t)((y)[1] & 255))<<48) | \
+         (((uint64_t)((y)[2] & 255))<<40)|(((uint64_t)((y)[3] & 255))<<32) | \
+         (((uint64_t)((y)[4] & 255))<<24)|(((uint64_t)((y)[5] & 255))<<16) | \
+         (((uint64_t)((y)[6] & 255))<<8)|(((uint64_t)((y)[7] & 255))); }
+
+#define STORE64H( x, y )                                                                     \
+   { (y)[0] = (uint8_t)(((x)>>56)&255); (y)[1] = (uint8_t)(((x)>>48)&255);     \
+     (y)[2] = (uint8_t)(((x)>>40)&255); (y)[3] = (uint8_t)(((x)>>32)&255);     \
+     (y)[4] = (uint8_t)(((x)>>24)&255); (y)[5] = (uint8_t)(((x)>>16)&255);     \
+     (y)[6] = (uint8_t)(((x)>>8)&255); (y)[7] = (uint8_t)((x)&255); }
+
+
+#define PUT64BE( x, y )                                                      \
+   { x = (((uint64_t)((y)[0] & 255)))|(((uint64_t)((y)[1] & 255))<<8) | \
+         (((uint64_t)((y)[2] & 255))<<16)|(((uint64_t)((y)[3] & 255))<<24) | \
+         (((uint64_t)((y)[4] & 255))<<32)|(((uint64_t)((y)[5] & 255))<<40) | \
+         (((uint64_t)((y)[6] & 255))<<48)|(((uint64_t)((y)[7] & 255))<<56); }
+
+typedef struct
+{
+
+	uint8_t  passwd[MAX_PASSW];
+
+}pwd_t;
+
+typedef struct
+{
+
+	uint8_t  salt[MAX_SALT];
+
+} salt_t;
+
 typedef struct
 {
 
@@ -32,14 +84,32 @@ typedef struct
 
 } digest_t;
 
+
 typedef struct
 {
 
-	uint64_t  ctx0[8];
-	uint64_t  p_bytes0[8];
-	uint64_t  s_bytes0[8];
+	uint64_t  buf64[8];
 
-} fifo_midel;
+}middle_t;
+
+
+typedef struct
+{
+  union{
+	//  uint8_t stp[64];
+	  uint64_t state[8];
+
+  };
+
+  union
+  {
+    uint64_t w[16];
+    uint8_t  buf[128];
+  };
+
+ // int len;
+
+} loop_sha512_ctx;
 
 typedef struct
 {
@@ -68,16 +138,16 @@ typedef struct
   uint32_t len;
 } plain_t;
 
-void do_copy(uint64_t *input, uint64_t *output);
-void up_buf(uint8_t *input, hc_sha512_ctx *output, int len);
-void transmit(uint64_t *input, unsigned char *output);
-void sha512_init(hc_sha512_ctx *ctx);
+
+void sha512_init(hc_sha512_ctx *ctx) ;
 void hashcat_sha512(uint64_t digest[8], uint64_t wordblock[16]);
-void sha512_update(hc_sha512_ctx *ctx, const char *buf, int len);
-void sha512_final(hc_sha512_ctx *ctx);
-void loop_sha512_final(hc_sha512_ctx *ctx);
-void loop_up_buf(uint8_t *input, hc_sha512_ctx *output);
 void no_hashcat_sha512(uint64_t digest[8], uint64_t wordblock[16]);
+void sha512_update(hc_sha512_ctx *ctx, unsigned char *buf, int len) ;
+void init0_six_final(hc_sha512_ctx *ctx) ;
+void sha512_final(hc_sha512_ctx *ctx) ;
+void loop_sha512_final_2(hc_sha512_ctx *ctx);
+void loop_sha512_final(uint64_t *state, uint64_t *words);
+
 
 #define SHA512M_A 0x6a09e667f3bcc908ull
 #define SHA512M_B 0xbb67ae8584caa73bull
@@ -87,6 +157,8 @@ void no_hashcat_sha512(uint64_t digest[8], uint64_t wordblock[16]);
 #define SHA512M_F 0x9b05688c2b3e6c1full
 #define SHA512M_G 0x1f83d9abfb41bd6bull
 #define SHA512M_H 0x5be0cd19137e2179ull
+
+static const uint64_t INIT_STATE[8] ={ SHA512M_A, SHA512M_B,SHA512M_C, SHA512M_D,SHA512M_E,SHA512M_F, SHA512M_G,SHA512M_H};
 
 #define DIGEST_SIZE_SHA512         8 * 8
 
@@ -144,6 +216,13 @@ static const uint64_t K[80] = {0x428a2f98d728ae22ULL, 0x7137449123ef65cdULL,
          (((uint64_t)((y)[2] & 255))<<40)|(((uint64_t)((y)[3] & 255))<<32) | \
          (((uint64_t)((y)[4] & 255))<<24)|(((uint64_t)((y)[5] & 255))<<16) | \
          (((uint64_t)((y)[6] & 255))<<8)|(((uint64_t)((y)[7] & 255))); }
+
+#define STORE64HB( x, y )                                                                     \
+   { (y)[0] = (((x)>>56)&255); (y)[1] = (((x)>>48)&255);     \
+     (y)[2] = (((x)>>40)&255); (y)[3] = (((x)>>32)&255);     \
+     (y)[4] = (((x)>>24)&255); (y)[5] = (((x)>>16)&255);     \
+     (y)[6] =(((x)>>8)&255); (y)[7] = ((x)&255); }
+
 
 #define STORE64H( x, y )                                                                     \
    { (y)[0] = (uint8_t)(((x)>>56)&255); (y)[1] = (uint8_t)(((x)>>48)&255);     \

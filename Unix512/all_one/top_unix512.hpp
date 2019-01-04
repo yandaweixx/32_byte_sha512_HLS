@@ -8,7 +8,7 @@ extern "C" {
 #define MAX_UPDATE 256
 #define MAX_PASSW 16
 #define MAX_SALT 16
-#define GROUP_LENGTH 1
+#define GROUP_LENGTH 256
 #define lp 6
 #define ls 8
 //ab7d8f6c34c4d7a96179920718a1ee66076f862b9392260fc555e849601440408600a9babe702a6f8dfd159da517a1337145c24b372cae59d9cb080c3630d75c

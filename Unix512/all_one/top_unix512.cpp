@@ -18,8 +18,6 @@ void transmit(uint64_t *input, unsigned char *output) {
 	}
 }
 
-
-
 void do_loop_copy(uint64_t *input, uint64_t *output) {
 #pragma HLS PIPELINE
 	int i, j;
@@ -48,10 +46,6 @@ void up_buf(uint8_t *input, hc_sha512_ctx *output, int len) {
 		output->buf[left + i] = input[i];
 	}
 }
-
-
-
-
 
 void loop_up_buf(uint8_t *input, uint8_t *output, int used, int len) {
 //#pragma HLS PIPELINE
@@ -95,9 +89,9 @@ void transmit16(uint64_t *input, unsigned char *output) {
 
 void do_init(hc_sha512_ctx *ctx0, hc_sha512_ctx *alt_ctx0,
 		hc_sha512_ctx *p_bytes0, hc_sha512_ctx *s_bytes0,
-		uint8_t *password0_buf, uint8_t *salt_buf, int password0_len,
-		int salt_len, uint8_t *wpc_alt_ctx0, uint8_t * wpc_p_bytes0,
-		uint8_t *wpc_s_bytes0) {
+		uint8_t password0_buf[MAX_PASSW], uint8_t salt_buf[MAX_SALT], int password0_len,
+		int salt_len, uint8_t wpc_alt_ctx0[64], uint8_t wpc_p_bytes0[64],
+		uint8_t wpc_s_bytes0[64]) {
 #pragma HLS inline off
 
 //#pragma HLS LOOP_FLATTEN off
@@ -477,21 +471,23 @@ void do_init(hc_sha512_ctx *ctx0, hc_sha512_ctx *alt_ctx0,
  }*/
 
 //void do_loop(uint64_t *digest[][8], uint64_t* wpc_alt_ctx0[][8], uint64_t *wpc_p_bytes0[][8], uint64_t *wpc_s_bytes0[][8],int password0_len[GROUP_LENGTH], int salt_len[GROUP_LENGTH]) {
-void do_loop(uint8_t (*wpc_alt_ctx0)[64],
+void do_loop(uint8_t wpc_alt_ctx0[GROUP_LENGTH][64],
 		uint8_t wpc_p_bytes0[GROUP_LENGTH][64],
 		uint8_t wpc_s_bytes0[GROUP_LENGTH][64], int password0_len,
 		int salt_len) {
 
 //#pragma HLS DATAFLOW
 #pragma HLS inline off
-	int i, j, k,j1,j3,j7,pc;
+	int i, j, k, j1, j3, j7, pc;
 	int cnt;
 
 	//uint64_t tmp_alt_ctx0[GROUP_LENGTH][8];
 	uint8_t hashout[64];
 
-	int lpp = password0_len;
-	int lss = salt_len;
+	/*int lp = password0_len;
+	int ls = salt_len;*/
+	//int lp = 6;
+//	int ls = 8;
 
 
 	uint8_t out1[GROUP_LENGTH][64];
@@ -500,7 +496,7 @@ void do_loop(uint8_t (*wpc_alt_ctx0)[64],
 	uint8_t wpc0[128];
 	uint64_t wpc064[16];
 
-#pragma HLS ARRAY_RESHAPE variable=out1 complete dim=2
+#pragma HLS ARRAY_PARTITION variable=out1 complete dim=2
 #pragma HLS ARRAY_RESHAPE variable=out2 complete dim=2
 #pragma HLS ARRAY_RESHAPE variable=wpc0 complete dim=1
 #pragma HLS ARRAY_RESHAPE variable=wpc064 complete dim=1
@@ -529,35 +525,38 @@ void do_loop(uint8_t (*wpc_alt_ctx0)[64],
 	uint64_t loop_ctx_state[8];
 
 	for (cnt = 0; cnt < 5000; cnt++) {
+/*#ifndef __SYNTHESIS__
+		printf("Doing %d/5000\n", cnt);
+#endif*/
+//#pragma HLS UNROLL factor=2
+//#pragma HLS PIPELINE II=500
+		j1 = (cnt & 1) ? 1 : 0;
+		j3 = (cnt % 3) ? 2 : 0;
+		j7 = (cnt % 7) ? 4 : 0;
 
-
-		 j1 = (cnt & 1) ? 1 : 0;
-		 j3 = (cnt % 3) ? 2 : 0;
-		 j7 = (cnt % 7) ? 4 : 0;
-
-		 pc = j1 + j3 + j7;
+		pc = j1 + j3 + j7;
 
 		switch (pc) {
 		case 0:
 			for (j = 0; j < GROUP_LENGTH; j++) {
 #pragma HLS PIPELINE II=1
-				for(i = 0; i <64; i++)
+				for (i = 0; i < 64; i++)
 					wpc0[i] = out1[j][i];
-				for(i = 64; i < 64 + lp; i++)
-					wpc0[i] = wpc_p_bytes0[j][i-64];
-				for(i = 64+lp; i<112; i++)
+				for (i = 64; i < 64 + lp; i++)
+					wpc0[i] = wpc_p_bytes0[j][i - 64];
+				for (i = 64 + lp; i < 112; i++)
 					wpc0[i] = 0;
 
 				/*for (i = 0; i < 112; i++) {
-					if (i < 64 + lp) {
-						if (i < 64)
-							wpc0[i] = out1[j][i];
-						else {
-							wpc0[i] = wpc_p_bytes0[j][i - 64];
-						}
-					} else
-						wpc0[i] = 0x00;
-				}*/
+				 if (i < 64 + lp) {
+				 if (i < 64)
+				 wpc0[i] = out1[j][i];
+				 else {
+				 wpc0[i] = wpc_p_bytes0[j][i - 64];
+				 }
+				 } else
+				 wpc0[i] = 0x00;
+				 }*/
 				wpc0[64 + lp] = 0x80;
 				for (i = 0; i < 14; i++)
 					LOAD64H(wpc064[i], wpc0 + i * 8)
@@ -574,22 +573,22 @@ void do_loop(uint8_t (*wpc_alt_ctx0)[64],
 		case 1:
 			for (j = 0; j < GROUP_LENGTH; j++) {
 #pragma HLS PIPELINE II=1
-				for(i = 0 ; i < lp; i++)
+				for (i = 0; i < lp; i++)
 					wpc0[i] = wpc_p_bytes0[j][i];
-				for(i = lp; i < lp+64; i++)
+				for (i = lp; i < lp + 64; i++)
 					wpc0[i] = out2[j][i - lp];
-				for(i = lp+64; i <112; i++)
+				for (i = lp + 64; i < 112; i++)
 					wpc0[i] = 0x00;
 				/*for (i = 0; i < 112; i++) {
-					if (i < lp + 64) {
-						if (i < lp)
-							wpc0[i] = wpc_p_bytes0[j][i];
-						else {
-							wpc0[i] = out2[j][i - lp];
-						}
-					} else
-						wpc0[i] = 0x00;
-				}*/
+				 if (i < lp + 64) {
+				 if (i < lp)
+				 wpc0[i] = wpc_p_bytes0[j][i];
+				 else {
+				 wpc0[i] = out2[j][i - lp];
+				 }
+				 } else
+				 wpc0[i] = 0x00;
+				 }*/
 				wpc0[64 + lp] = 0x80;
 				for (i = 0; i < 14; i++)
 					LOAD64H(wpc064[i], wpc0 + i * 8)
@@ -606,30 +605,30 @@ void do_loop(uint8_t (*wpc_alt_ctx0)[64],
 		case 2:
 			for (j = 0; j < GROUP_LENGTH; j++) {
 #pragma HLS PIPELINE II=1
-				for(i = 0; i < 64; i++)
+				for (i = 0; i < 64; i++)
 					wpc0[i] = out1[j][i];
 
-				for(i = 64; i < 64+ls; i++)
+				for (i = 64; i < 64 + ls; i++)
 					wpc0[i] = wpc_s_bytes0[j][i - 64];
 
-				for(i = 64+ ls; i< 64+ls+lp; i++)
+				for (i = 64 + ls; i < 64 + ls + lp; i++)
 					wpc0[i] = wpc_p_bytes0[j][i - 64 - ls];
 
-				for(i = 64+ls+lp; i< 112; i++)
+				for (i = 64 + ls + lp; i < 112; i++)
 					wpc0[i] = 0x00;
 
 				/*for (i = 0; i < 112; i++) {
-					if (i < 64 + ls + lp) {
-						if (i < 64)
-							wpc0[i] = out1[j][i];
-						else if (i < 64 + ls) {
-							wpc0[i] = wpc_s_bytes0[j][i - 64];
-						} else
-							wpc0[i] = wpc_p_bytes0[j][i - 64 - ls];
+				 if (i < 64 + ls + lp) {
+				 if (i < 64)
+				 wpc0[i] = out1[j][i];
+				 else if (i < 64 + ls) {
+				 wpc0[i] = wpc_s_bytes0[j][i - 64];
+				 } else
+				 wpc0[i] = wpc_p_bytes0[j][i - 64 - ls];
 
-					} else
-						wpc0[i] = 0x00;
-				}*/
+				 } else
+				 wpc0[i] = 0x00;
+				 }*/
 				wpc0[64 + ls + lp] = 0x80;
 
 				for (i = 0; i < 14; i++)
@@ -647,27 +646,27 @@ void do_loop(uint8_t (*wpc_alt_ctx0)[64],
 		case 3:
 			for (j = 0; j < GROUP_LENGTH; j++) {
 #pragma HLS PIPELINE II=1
-				for(i = 0 ; i < lp; i ++)
+				for (i = 0; i < lp; i++)
 					wpc0[i] = wpc_p_bytes0[j][i];
-				for(i = lp; i < lp+ls; i++)
+				for (i = lp; i < lp + ls; i++)
 					wpc0[i] = wpc_s_bytes0[j][i - lp];
-				for(i = lp+ls ; i < lp+ls+64; i++)
+				for (i = lp + ls; i < lp + ls + 64; i++)
 					wpc0[i] = out2[j][i - lp - ls];
-				for(i = lp + ls + 64; i < 112; i ++)
+				for (i = lp + ls + 64; i < 112; i++)
 					wpc0[i] = 0;
 
 				/*for (i = 0; i < 112; i++) {
-					if (i < lp + ls + 64) {
-						if (i < lp)
-							wpc0[i] = wpc_p_bytes0[j][i];
-						else if (i < lp + ls) {
-							wpc0[i] = wpc_s_bytes0[j][i - lp];
-						} else
-							wpc0[i] = out2[j][i - lp - ls];
+				 if (i < lp + ls + 64) {
+				 if (i < lp)
+				 wpc0[i] = wpc_p_bytes0[j][i];
+				 else if (i < lp + ls) {
+				 wpc0[i] = wpc_s_bytes0[j][i - lp];
+				 } else
+				 wpc0[i] = out2[j][i - lp - ls];
 
-					} else
-						wpc0[i] = 0x00;
-				}*/
+				 } else
+				 wpc0[i] = 0x00;
+				 }*/
 				wpc0[lp + ls + 64] = 0x80;
 				for (i = 0; i < 14; i++)
 					LOAD64H(wpc064[i], wpc0 + i * 8)
@@ -683,27 +682,26 @@ void do_loop(uint8_t (*wpc_alt_ctx0)[64],
 		case 4:
 			for (j = 0; j < GROUP_LENGTH; j++) {
 #pragma HLS PIPELINE II=1
-
-				for(i = 0; i < 64; i ++)
+				for (i = 0; i < 64; i++)
 					wpc0[i] = out1[j][i];
-				for(i = 64; i < 64+lp; i++)
+				for (i = 64; i < 64 + lp; i++)
 					wpc0[i] = wpc_p_bytes0[j][i - 64];
-				for(i = 64+lp; i < 64+lp+lp; i ++)
+				for (i = 64 + lp; i < 64 + lp + lp; i++)
 					wpc0[i] = wpc_p_bytes0[j][i - 64 - lp];
-				for(i= 64+ lp + lp; i < 112; i++)
+				for (i = 64 + lp + lp; i < 112; i++)
 					wpc0[i] = 0;
 				/*for (i = 0; i < 112; i++) {
-					if (i < 64 + lp + lp) {
-						if (i < 64)
-							wpc0[i] = out1[j][i];
-						else if (i < 64 + lp) {
-							wpc0[i] = wpc_p_bytes0[j][i - 64];
-						} else
-							wpc0[i] = wpc_p_bytes0[j][i - 64 - lp];
+				 if (i < 64 + lp + lp) {
+				 if (i < 64)
+				 wpc0[i] = out1[j][i];
+				 else if (i < 64 + lp) {
+				 wpc0[i] = wpc_p_bytes0[j][i - 64];
+				 } else
+				 wpc0[i] = wpc_p_bytes0[j][i - 64 - lp];
 
-					} else
-						wpc0[i] = 0x00;
-				}*/
+				 } else
+				 wpc0[i] = 0x00;
+				 }*/
 				wpc0[64 + lp + lp] = 0x80;
 
 				for (i = 0; i < 14; i++)
@@ -720,26 +718,26 @@ void do_loop(uint8_t (*wpc_alt_ctx0)[64],
 		case 5:
 			for (j = 0; j < GROUP_LENGTH; j++) {
 #pragma HLS PIPELINE II=1
-				for(i = 0; i < lp; i ++)
+				for (i = 0; i < lp; i++)
 					wpc0[i] = wpc_p_bytes0[j][i];
-				for(i = lp; i < lp+lp; i++)
+				for (i = lp; i < lp + lp; i++)
 					wpc0[i] = wpc_p_bytes0[j][i - lp];
-				for(i= lp+lp; i < lp+lp+64; i++)
+				for (i = lp + lp; i < lp + lp + 64; i++)
 					wpc0[i] = out2[j][i - lp - lp];
-				for(i= lp+lp+64; i < 112; i++)
+				for (i = lp + lp + 64; i < 112; i++)
 					wpc0[i] = 0;
 				/*for (i = 0; i < 112; i++) {
-					if (i < lp + lp + 64) {
-						if (i < lp)
-							wpc0[i] = wpc_p_bytes0[j][i];
-						else if (i < lp + lp) {
-							wpc0[i] = wpc_p_bytes0[j][i - lp];
-						} else
-							wpc0[i] = out2[j][i - lp - lp];
+				 if (i < lp + lp + 64) {
+				 if (i < lp)
+				 wpc0[i] = wpc_p_bytes0[j][i];
+				 else if (i < lp + lp) {
+				 wpc0[i] = wpc_p_bytes0[j][i - lp];
+				 } else
+				 wpc0[i] = out2[j][i - lp - lp];
 
-					} else
-						wpc0[i] = 0x00;
-				}*/
+				 } else
+				 wpc0[i] = 0x00;
+				 }*/
 				wpc0[lp + lp + 64] = 0x80;
 				for (i = 0; i < 14; i++)
 					LOAD64H(wpc064[i], wpc0 + i * 8)
@@ -756,31 +754,31 @@ void do_loop(uint8_t (*wpc_alt_ctx0)[64],
 		case 6:
 			for (j = 0; j < GROUP_LENGTH; j++) {
 #pragma HLS PIPELINE II=1
-				for(i = 0; i < 64; i ++)
+				for (i = 0; i < 64; i++)
 					wpc0[i] = out1[j][i];
-				for(i = 64; i< 64+ls; i++)
+				for (i = 64; i < 64 + ls; i++)
 					wpc0[i] = wpc_s_bytes0[j][i - 64];
-				for(i=64+ls; i<64+ls+lp; i++)
+				for (i = 64 + ls; i < 64 + ls + lp; i++)
 					wpc0[i] = wpc_p_bytes0[j][i - 64 - ls];
-				for(i=64+ls+lp; i< 64+ls+lp+lp; i++)
+				for (i = 64 + ls + lp; i < 64 + ls + lp + lp; i++)
 					wpc0[i] = wpc_p_bytes0[j][i - 64 - ls - lp];
 
-				for(i=64+ls+lp+lp; i< 112; i++)
+				for (i = 64 + ls + lp + lp; i < 112; i++)
 					wpc0[i] = 0;
 				/*for (i = 0; i < 112; i++) {
-					if (i < 64 + ls + lp + lp) {
-						if (i < 64)
-							wpc0[i] = out1[j][i];
-						else if (i < 64 + ls) {
-							wpc0[i] = wpc_s_bytes0[j][i - 64];
-						} else if (i < 64 + ls + lp)
-							wpc0[i] = wpc_p_bytes0[j][i - 64 - ls];
-						else
-							wpc0[i] = wpc_p_bytes0[j][i - 64 - ls - lp];
+				 if (i < 64 + ls + lp + lp) {
+				 if (i < 64)
+				 wpc0[i] = out1[j][i];
+				 else if (i < 64 + ls) {
+				 wpc0[i] = wpc_s_bytes0[j][i - 64];
+				 } else if (i < 64 + ls + lp)
+				 wpc0[i] = wpc_p_bytes0[j][i - 64 - ls];
+				 else
+				 wpc0[i] = wpc_p_bytes0[j][i - 64 - ls - lp];
 
-					} else
-						wpc0[i] = 0x00;
-				}*/
+				 } else
+				 wpc0[i] = 0x00;
+				 }*/
 				wpc0[64 + ls + lp + lp] = 0x80;
 				for (i = 0; i < 14; i++)
 					LOAD64H(wpc064[i], wpc0 + i * 8)
@@ -796,31 +794,31 @@ void do_loop(uint8_t (*wpc_alt_ctx0)[64],
 		case 7:
 			for (j = 0; j < GROUP_LENGTH; j++) {
 #pragma HLS PIPELINE II=1
-				for(i = 0 ; i < lp; i++)
+				for (i = 0; i < lp; i++)
 					wpc0[i] = wpc_p_bytes0[j][i];
-				for(i = lp; i < lp+ls; i++)
+				for (i = lp; i < lp + ls; i++)
 					wpc0[i] = wpc_s_bytes0[j][i - lp];
-				for(i = lp + ls; i < lp+ls+lp;i++)
+				for (i = lp + ls; i < lp + ls + lp; i++)
 					wpc0[i] = wpc_p_bytes0[j][i - lp - ls];
-				for(i = lp+ls +lp; i < lp+ls+lp+64; i++)
+				for (i = lp + ls + lp; i < lp + ls + lp + 64; i++)
 					wpc0[i] = out2[j][i - lp - ls - lp];
-				for(i = lp+ls+lp+64; i < 112; i++)
+				for (i = lp + ls + lp + 64; i < 112; i++)
 					wpc0[i] = 0;
 
 				/*for (i = 0; i < 112; i++) {
-					if (i < lp + ls + lp + 64) {
-						if (i < lp)
-							wpc0[i] = wpc_p_bytes0[j][i];
-						else if (i < lp + ls) {
-							wpc0[i] = wpc_s_bytes0[j][i - lp];
-						} else if (i < lp + ls + lp)
-							wpc0[i] = wpc_p_bytes0[j][i - lp - ls];
-						else
-							wpc0[i] = out2[j][i - lp - ls - lp];
+				 if (i < lp + ls + lp + 64) {
+				 if (i < lp)
+				 wpc0[i] = wpc_p_bytes0[j][i];
+				 else if (i < lp + ls) {
+				 wpc0[i] = wpc_s_bytes0[j][i - lp];
+				 } else if (i < lp + ls + lp)
+				 wpc0[i] = wpc_p_bytes0[j][i - lp - ls];
+				 else
+				 wpc0[i] = out2[j][i - lp - ls - lp];
 
-					} else
-						wpc0[i] = 0x00;
-				}*/
+				 } else
+				 wpc0[i] = 0x00;
+				 }*/
 				wpc0[lp + ls + lp + 64] = 0x80;
 				for (i = 0; i < 14; i++)
 					LOAD64H(wpc064[i], wpc0 + i * 8)
@@ -834,7 +832,7 @@ void do_loop(uint8_t (*wpc_alt_ctx0)[64],
 
 			}
 			break;
-		}//case
+		} //case
 
 	}		//5000
 	for (i = 0; i < GROUP_LENGTH; i++) {
@@ -846,14 +844,16 @@ void do_loop(uint8_t (*wpc_alt_ctx0)[64],
 
 }
 
-void hashing_01800(hls::stream<pwd_t> &pwd, hls::stream<int> &password0_len,
-		hls::stream<int> &salt_len, hls::stream<salt_t> &salt,
-		hls::stream<digest_t> &digest) {
+void hashing_01800(hls::stream<pwd_t> &pwd, hls::stream<int> &password0_len,hls::stream<int> &salt_len, hls::stream<salt_t> &salt,hls::stream<digest_t> &digest) {
 #pragma HLS DATA_PACK variable=pwd
 #pragma HLS DATA_PACK variable=salt
 #pragma HLS DATA_PACK variable=digest
 //#pragma HLS STREAM variable=digest
-
+#pragma HLS STREAM variable=pwd depth=256
+#pragma HLS STREAM variable=salt depth=256
+#pragma HLS STREAM variable=password0_len depth=256
+#pragma HLS STREAM variable=salt_len depth=256
+#pragma HLS STREAM variable=digest depth=256
 	/*#pragma HLS INTERFACE ap_fifo port=digest depth=2048
 	 #pragma HLS INTERFACE ap_fifo port=salt depth=2048
 	 #pragma HLS INTERFACE ap_fifo port=pwd depth=2048*/
@@ -899,7 +899,7 @@ void hashing_01800(hls::stream<pwd_t> &pwd, hls::stream<int> &password0_len,
 	uint8_t wpc_p_bytes0[GROUP_LENGTH][64];
 	uint8_t wpc_s_bytes0[GROUP_LENGTH][64];
 
-	for (i = 0; i < GROUP_LENGTH; i++) {
+	for (i = 0; i < 8; i++) {
 		tmp_digest.buf64[i] = 0x00;
 	}
 //	int wpc_len[GROUP_LENGTH][8];
@@ -917,6 +917,9 @@ void hashing_01800(hls::stream<pwd_t> &pwd, hls::stream<int> &password0_len,
 //#pragma HLS DATAFLOW
 
 	for (i = 0; i < GROUP_LENGTH; i++) {
+#ifndef __SYNTHESIS__
+		printf("Doing init part  %d/GROUP_LENGTH\n", i);
+#endif
 //#pragma HLS LOOP_FLATTEN off
 		tmp_passwd = pwd.read();
 		tmp_salt = salt.read();
@@ -941,7 +944,7 @@ void hashing_01800(hls::stream<pwd_t> &pwd, hls::stream<int> &password0_len,
 	for (i = 0; i < GROUP_LENGTH; i++) {
 		for (j = 0; j < 8; j++) {
 #pragma HLS PIPELINE II=1
-			PUT64BE(tmp_digest.buf64[j],wpc_alt_ctx0[i] + j*8)
+			PUT64BE(tmp_digest.buf64[j], wpc_alt_ctx0[i] + j * 8)
 			//tmp_digest.buf64[j] = wpc_alt_ctx0[i][j];
 		}
 		digest.write(tmp_digest);
